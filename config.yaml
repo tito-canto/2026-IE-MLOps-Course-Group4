@@ -1,0 +1,14 @@
+# config.yaml  [Settings: single source of truth]
+# -------------------------------------------------------------------
+# Purpose   Every NON-SECRET setting the pipeline needs, in one place
+# Read by   main.py (stage 3: through src/config.py), later also api.py
+# Why       Change the target, features or split sizes without touching code
+# Never     Secrets (API keys, passwords). Those go in .env
+#
+# Typical sections
+#   paths     where raw data, model, inference data and predictions live
+#   problem   target column, problem type (classification or regression), ID column
+#   split     test size, validation size, random seed
+#
+# Stage 2: the same values live in a SETTINGS dictionary at the top of src/main.py
+# Stage 3: main.py reads this file instead, with the same key names

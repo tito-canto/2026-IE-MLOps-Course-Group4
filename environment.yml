@@ -1,0 +1,13 @@
+# environment.yml  [Dependencies]
+# -------------------------------------------------------------------
+# Purpose   List the packages (and Python version) the project needs
+# Used by   You and your teammates: conda env create -f environment.yml
+# Why       Everyone runs the same code on the same versions ("works on my machine" ends here)
+#
+# Typical groups
+#   data and modelling    e.g. pandas, scikit-learn, joblib
+#   notebooks and plots   exploration only
+#   quality (stage 2)     test runner, coverage, style checker
+#   stage 3               config, tracking, serving and locking tools
+#
+# Stage 3: conda-lock.yml freezes these into exact versions for CI and Docker

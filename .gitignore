@@ -1,0 +1,45 @@
+# .gitignore  [What Git must never track]
+# Purpose: keep data, secrets and generated files out of GitHub
+# Kept as real rules on purpose: a missing rule can leak personal data or secrets
+
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Environments and secrets
+.env
+.env.*
+!.env.example
+.venv/
+env/
+venv/
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# OS and IDE
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/settings.json
+
+# Data: never in Git by default (it may hold personal or confidential information)
+data/**
+!data/
+!data/raw/
+!data/processed/
+!data/inference/
+!data/**/.gitkeep
+!data/**/README.md
+
+# Generated outputs (recreated by: python -m src.main)
+models/**
+!models/
+!models/README.md
+reports/**
+!reports/
+!reports/README.md

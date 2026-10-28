@@ -1,0 +1,6 @@
+LICENSE  [Who may use this code, and how]
+
+Purpose   States the terms under which others can reuse your code
+Why       Code on GitHub without a license is "all rights reserved" by default
+How       GitHub > Add file > Create new file > name it LICENSE > "Choose a license template"
+          (MIT is a common, permissive choice)

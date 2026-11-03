@@ -16,7 +16,11 @@
 
 paths:
   raw_data: "data/raw/insurance.csv"
+  processed_data: "data/processed/data.csv"
+  predictions: "data/inference"
 data:
   required_columns: ["age", "sex", "bmi", "children", "smoker", "region", "charges"]
   feature: ["age", "sex", "bmi", "children", "smoker", "region"]
   target: "charges"
+variables:
+  seed: 47

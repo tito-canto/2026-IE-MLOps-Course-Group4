@@ -16,7 +16,7 @@
 
 paths:
   raw_data: "data/raw/insurance.csv"
-  processed_data: "data/processed/data.csv"
+  processed_data: "data/processed/processed.csv"
   predictions: "data/inference"
 data:
   required_columns: ["age", "sex", "bmi", "children", "smoker", "region", "charges"]

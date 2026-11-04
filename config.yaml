@@ -23,5 +23,7 @@ data:
   required_columns: ["age", "sex", "bmi", "children", "smoker", "region", "charges"]
   feature: ["age", "sex", "bmi", "children", "smoker", "region"]
   target: "charges"
+  numeric: ["age", "bmi", "children"]
+  categorical: ["sex", "smoker", "region"]
 variables:
   seed: 47

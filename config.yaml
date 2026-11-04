@@ -18,6 +18,7 @@ paths:
   raw_data: "data/raw/insurance.csv"
   processed_data: "data/processed/processed.csv"
   predictions: "data/inference"
+  model: "models/model.joblib"
 data:
   required_columns: ["age", "sex", "bmi", "children", "smoker", "region", "charges"]
   feature: ["age", "sex", "bmi", "children", "smoker", "region"]

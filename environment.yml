@@ -46,3 +46,6 @@ dependencies:
 
   # Configuration
   - pyyaml=6.0.3
+
+  # Quality
+  - pytest=9.2.0

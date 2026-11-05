@@ -27,3 +27,5 @@ data:
   categorical: ["sex", "smoker", "region"]
 variables:
   seed: 47
+evaluation:
+  metrics: ["r2", "mae", "rmse"]

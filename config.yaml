@@ -25,6 +25,8 @@ data:
   target: "charges"
   numeric: ["age", "bmi", "children"]
   categorical: ["sex", "smoker", "region"]
+validation:
+  expected_rows: 1338
 variables:
   seed: 47
 evaluation:

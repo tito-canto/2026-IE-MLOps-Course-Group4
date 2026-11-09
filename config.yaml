@@ -29,3 +29,5 @@ validation:
   expected_rows: 1338
 variables:
   seed: 47
+evaluation:
+  metrics: ["r2", "mae", "rmse"]

@@ -13,3 +13,35 @@ Why it matters
 
 Tests     tests/test_infer.py (stage 2)
 """
+from __future__ import annotations
+
+from typing import Any, Mapping
+
+import numpy as np
+import pandas as pd
+
+from src.train import prepare_features, predict_ols
+
+
+def infer(bundle: Mapping[str, Any], frame: pd.DataFrame) -> pd.DataFrame:
+    """Predict from the notebook's saved bundle (sections 6, 9 and 11).
+
+    Reuse the frozen design and fitted imputer without fitting on new rows.
+    Input predictors should already be cleaned, as in the notebook.
+    """
+    missing = sorted(set(bundle["predictors"]) - set(frame.columns))
+    if missing:
+        raise ValueError(f"Missing required predictors: {missing}")
+    if frame.empty:
+        raise ValueError("Cannot infer on an empty dataset")
+    features = prepare_features(
+        frame, bundle["predictors"], bundle["categorical"], bundle["feature_columns"]
+    )
+    X = pd.DataFrame(
+        bundle["imputer"].transform(features),
+        columns=bundle["feature_columns"], index=frame.index,
+    )
+    predicted = predict_ols(bundle["model"], X)
+    if predicted.shape != (len(frame),) or not np.isfinite(predicted).all():
+        raise ValueError("Model must return one finite prediction per row")
+    return pd.DataFrame({"prediction": predicted}, index=frame.index)

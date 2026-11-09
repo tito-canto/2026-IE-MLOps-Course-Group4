@@ -19,8 +19,12 @@ Extracted from notebooks/Insurance_Single_OLS_Adapted.ipynb (sections 6, 8 and 9
 """
 from __future__ import annotations
 
+import argparse
+import json
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+import joblib
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
@@ -74,3 +78,71 @@ def evaluate(
 def metrics_from_config(cfg: Mapping[str, Any]) -> list[str]:
     """Read evaluation.metrics from the config, falling back to the defaults."""
     return list(cfg.get("evaluation", {}).get("metrics", DEFAULT_METRICS))
+
+
+def prediction_report(
+    frame: pd.DataFrame, predicted: Sequence[float], target: str = "charges"
+) -> pd.DataFrame:
+    """Extract the row-level error report from notebook section 9.
+
+    Predictions follow row order, preserving the held-out frame's index.
+    """
+    predicted = np.asarray(predicted, dtype=float)
+    if predicted.shape != (len(frame),):
+        raise ValueError("Expected one prediction per evaluation row")
+    report = frame.copy()
+    report["predicted_charges"] = predicted
+    report["residual"] = report[target] - report["predicted_charges"]
+    report["absolute_error"] = report["residual"].abs()
+    return report
+
+
+def main(argv: Sequence[str] | None = None) -> dict[str, float]:
+    """Evaluate an explicitly supplied held-out CSV using a saved model.
+
+    Run: python -m src.evaluate --data held_out.csv [--model model.joblib]
+    Notebook bundles receive their saved encoding and imputation; ordinary
+    fitted pipelines receive raw predictor columns. No preprocessing is fitted.
+    Only load trusted joblib artifacts.
+    """
+    from src.config import load_config
+
+    root = Path(__file__).resolve().parent.parent
+    parser = argparse.ArgumentParser(description=main.__doc__)
+    parser.add_argument("--config", type=Path, default=root / "config.yaml")
+    parser.add_argument("--data", type=Path, required=True, help="Held-out CSV; never training data")
+    parser.add_argument("--model", type=Path, help="Trusted joblib model or notebook bundle")
+    parser.add_argument("--output-dir", type=Path, help="Optionally save metrics and prediction CSVs")
+    args = parser.parse_args(argv)
+    cfg = load_config(args.config)
+    artifact = joblib.load(args.model or root / cfg["paths"]["model"])
+    frame = pd.read_csv(args.data)
+    if isinstance(artifact, dict):
+        target = artifact["target"]
+        X = pd.get_dummies(
+            frame[artifact["predictors"]], columns=artifact["categorical"],
+            drop_first=False, dtype=float,
+        ).reindex(columns=artifact["feature_columns"], fill_value=0).astype(float)
+        X = pd.DataFrame(
+            artifact["imputer"].transform(X),
+            columns=artifact["feature_columns"], index=frame.index,
+        )
+        model = artifact["model"]
+    else:
+        target = cfg.get("data", {}).get("target", "charges")
+        X = frame.drop(columns=[target])
+        model = artifact
+    predicted = predict(model, X)
+    result = scores(frame[target], predicted, metrics_from_config(cfg))
+    if args.output_dir is not None:
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame([result]).to_csv(args.output_dir / "evaluation_scores.csv", index=False)
+        prediction_report(frame, predicted, target).to_csv(
+            args.output_dir / "evaluation_predictions.csv", index=False,
+        )
+    print(json.dumps(result, allow_nan=False))
+    return result
+
+
+if __name__ == "__main__":
+    main()

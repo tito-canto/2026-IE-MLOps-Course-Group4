@@ -74,3 +74,20 @@ def evaluate(
 def metrics_from_config(cfg: Mapping[str, Any]) -> list[str]:
     """Read evaluation.metrics from the config, falling back to the defaults."""
     return list(cfg.get("evaluation", {}).get("metrics", DEFAULT_METRICS))
+
+
+def prediction_report(
+    frame: pd.DataFrame, predicted: Sequence[float], target: str = "charges"
+) -> pd.DataFrame:
+    """Extract the row-level error report from notebook section 9.
+
+    Predictions follow row order, preserving the held-out frame's index.
+    """
+    predicted = np.asarray(predicted, dtype=float)
+    if predicted.shape != (len(frame),):
+        raise ValueError("Expected one prediction per evaluation row")
+    report = frame.copy()
+    report["predicted_charges"] = predicted
+    report["residual"] = report[target] - report["predicted_charges"]
+    report["absolute_error"] = report["residual"].abs()
+    return report

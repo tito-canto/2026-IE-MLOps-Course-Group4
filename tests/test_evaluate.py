@@ -86,3 +86,63 @@ def test_metrics_from_config():
     assert metrics_from_config({"evaluation": {"metrics": ["mae"]}}) == ["mae"]
     repo_metrics = metrics_from_config(load_config(DEFAULT_CONFIG_PATH))
     assert scores([1.0, 2.0, 3.0], [1.0, 2.0, 2.5], repo_metrics)
+
+
+def test_prediction_report_preserves_rows_and_input():
+    from src.evaluate import prediction_report
+
+    frame = pd.DataFrame({"charges": [10., 20.]}, index=[8, 3])
+    original = frame.copy(deep=True)
+    report = prediction_report(frame, [12., 17.])
+    pd.testing.assert_frame_equal(frame, original)
+    assert report.index.tolist() == [8, 3]
+    assert report["residual"].tolist() == [-2., 3.]
+    assert report["absolute_error"].tolist() == [2., 3.]
+    with pytest.raises(ValueError, match="one prediction"):
+        prediction_report(frame, [1.])
+
+
+@pytest.mark.parametrize("bundle", [False, True])
+def test_cli_saved_models_and_exports(tmp_path, capsys, bundle):
+    import json
+    import joblib
+    import yaml
+    from sklearn.impute import SimpleImputer
+    from src.evaluate import main
+
+    train = pd.DataFrame({"age": [20., 30., 40., 50.], "sex": ["f", "m", "f", "m"]})
+    encoded = pd.get_dummies(train, columns=["sex"], dtype=float).drop(columns="sex_f")
+    imputer = SimpleImputer(strategy="median").fit(encoded)
+    y = 10 * train.age + 50 * encoded.sex_m
+    model = sm.OLS(y, sm.add_constant(encoded, has_constant="add")).fit()
+    held_out = pd.DataFrame({"age": [25., np.nan], "sex": ["f", "f"], "charges": [250., 350.]})
+    if bundle:
+        artifact = dict(model=model, imputer=imputer, predictors=list(train.columns),
+                        categorical=["sex"], feature_columns=list(encoded.columns), target="charges")
+    else:
+        model = LinearRegression().fit(train[["age"]], 10 * train.age)
+        artifact = model
+        held_out = pd.DataFrame({"age": [25., 35.], "charges": [250., 350.]})
+    model_path = tmp_path / "model.joblib"
+    joblib.dump(artifact, model_path)
+    data_path = tmp_path / "held_out.csv"
+    held_out.to_csv(data_path, index=False)
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(yaml.safe_dump({"paths": {"model": str(model_path)},
+                                        "evaluation": {"metrics": ["mae", "rmse"]}}))
+    output = tmp_path / "reports"
+    result = main(["--config", str(cfg_path), "--data", str(data_path),
+                   "--output-dir", str(output)])
+    assert result == pytest.approx({"mae": 0., "rmse": 0.}, abs=1e-9)
+    assert json.loads(capsys.readouterr().out) == result
+    saved = pd.read_csv(output / "evaluation_predictions.csv")
+    np.testing.assert_allclose(saved.predicted_charges, held_out.charges)
+    assert list(pd.read_csv(output / "evaluation_scores.csv")) == ["mae", "rmse"]
+
+
+def test_cli_requires_explicit_held_out_data():
+    from src.evaluate import main
+
+    with pytest.raises(SystemExit) as exc:
+        main([])
+    assert exc.value.code == 2

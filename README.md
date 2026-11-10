@@ -1,5 +1,26 @@
 # [Project name: to be decided]
 
+## Running the pipeline
+
+Create and activate the environment in `environment.yml`. Put the insurance CSV at
+`data/raw/insurance.csv`, or supply its local path without copying it into the repository.
+Replace the example path below with the location of your CSV:
+
+```powershell
+python -m src.main --data "C:\path\to\insurance.csv"
+```
+
+The command cleans and validates the data, trains the notebook's OLS model, and evaluates
+the final model on the reserved sample. It writes the cleaned CSV, model bundle and
+reserved-sample predictions to the configured paths. Predictions from this command are
+held-out evaluation predictions; use `python -m src.infer --data <new-records.csv>`
+for new records. The proposed business quality gate cannot be assessed until the
+similar-customers baseline MAE is measured. Raw data and generated outputs remain untracked.
+
+Run `python -m pytest --cov=src --cov-branch` for tests and coverage. Run
+`python -m flake8 --isolated --max-line-length=120 --extend-ignore=E203 src tests`
+for the course style check.
+
 > The insurance company should invest in an MLOps cost-prediction solution to reduce operational costs and improve accuracy over manual historical comparisons.
 
 ## 1. Business case

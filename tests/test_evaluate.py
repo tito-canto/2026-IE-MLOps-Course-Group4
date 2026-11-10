@@ -103,7 +103,8 @@ def test_prediction_report_preserves_rows_and_input():
 
 
 @pytest.mark.parametrize("bundle", [False, True])
-def test_cli_saved_models_and_exports(tmp_path, capsys, bundle):
+@pytest.mark.parametrize("export", [False, True])
+def test_cli_saved_models_and_exports(tmp_path, capsys, bundle, export):
     import json
     import joblib
     import yaml
@@ -131,13 +132,18 @@ def test_cli_saved_models_and_exports(tmp_path, capsys, bundle):
     cfg_path.write_text(yaml.safe_dump({"paths": {"model": str(model_path)},
                                         "evaluation": {"metrics": ["mae", "rmse"]}}))
     output = tmp_path / "reports"
-    result = main(["--config", str(cfg_path), "--data", str(data_path),
-                   "--output-dir", str(output)])
+    args = ["--config", str(cfg_path), "--data", str(data_path)]
+    if export:
+        args += ["--output-dir", str(output)]
+    result = main(args)
     assert result == pytest.approx({"mae": 0., "rmse": 0.}, abs=1e-9)
     assert json.loads(capsys.readouterr().out) == result
-    saved = pd.read_csv(output / "evaluation_predictions.csv")
-    np.testing.assert_allclose(saved.predicted_charges, held_out.charges)
-    assert list(pd.read_csv(output / "evaluation_scores.csv")) == ["mae", "rmse"]
+    if export:
+        saved = pd.read_csv(output / "evaluation_predictions.csv")
+        np.testing.assert_allclose(saved.predicted_charges, held_out.charges)
+        assert list(pd.read_csv(output / "evaluation_scores.csv")) == ["mae", "rmse"]
+    else:
+        assert not output.exists()
 
 
 def test_cli_requires_explicit_held_out_data():

@@ -49,3 +49,5 @@ dependencies:
 
   # Quality
   - pytest=9.2.0
+  - pytest-cov
+  - flake8

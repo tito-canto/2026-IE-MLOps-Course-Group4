@@ -12,3 +12,22 @@
 #
 # Stage 2: the same values live in a SETTINGS dictionary at the top of src/main.py
 # Stage 3: main.py reads this file instead, with the same key names
+
+
+paths:
+  raw_data: "data/raw/insurance.csv"
+  processed_data: "data/processed/processed.csv"
+  predictions: "data/inference"
+  model: "models/model.joblib"
+data:
+  required_columns: ["age", "sex", "bmi", "children", "smoker", "region", "charges"]
+  feature: ["age", "sex", "bmi", "children", "smoker", "region"]
+  target: "charges"
+  numeric: ["age", "bmi", "children"]
+  categorical: ["sex", "smoker", "region"]
+validation:
+  expected_rows: 1338
+variables:
+  seed: 47
+evaluation:
+  metrics: ["r2", "mae", "rmse"]

@@ -1,13 +1,17 @@
-"""
-utils.py  [Shared plumbing]
-===========================
-Purpose   Small, reusable read and write helpers
-Examples  read and write CSV files, save and load the model file
-Used by   load_data.py, main.py, infer.py, api.py (stage 3)
+"""Shared file helpers for pipeline outputs."""
+from pathlib import Path
 
-Why it matters
-- One place for file I/O (Input/Output): fix a bug once, every module benefits
-- No business logic: if a helper knows your target column, it belongs elsewhere
+import joblib
+import pandas as pd
 
-Tests     tests/test_utils.py (stage 2)
-"""
+
+def write_csv(frame: pd.DataFrame, path: Path) -> None:
+    """Write a frame without its index, creating the parent directory."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(path, index=False)
+
+
+def load_model(path: Path):
+    """Load a trusted model artifact."""
+    return joblib.load(path)

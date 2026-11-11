@@ -31,6 +31,8 @@ import statsmodels.api as sm
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from statsmodels.regression.linear_model import RegressionResultsWrapper
 
+from src.features import transform_saved_features
+
 METRICS = {
     "r2": r2_score,
     "mae": mean_absolute_error,
@@ -119,14 +121,7 @@ def main(argv: Sequence[str] | None = None) -> dict[str, float]:
     frame = pd.read_csv(args.data)
     if isinstance(artifact, dict):
         target = artifact["target"]
-        X = pd.get_dummies(
-            frame[artifact["predictors"]], columns=artifact["categorical"],
-            drop_first=False, dtype=float,
-        ).reindex(columns=artifact["feature_columns"], fill_value=0).astype(float)
-        X = pd.DataFrame(
-            artifact["imputer"].transform(X),
-            columns=artifact["feature_columns"], index=frame.index,
-        )
+        X = transform_saved_features(artifact, frame)
         model = artifact["model"]
     else:
         target = cfg.get("data", {}).get("target", "charges")

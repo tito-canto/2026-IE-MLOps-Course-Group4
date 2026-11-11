@@ -202,11 +202,14 @@ def test_run_saves_a_bundle_that_reproduces_predictions(tmp_path):
         "categorical",
         "feature_columns",
         "target",
+        "preprocessor",
     ]
     assert bundle["predictors"] == PREDICTORS
     assert bundle["categorical"] == CATEGORICAL
     assert bundle["feature_columns"] == EXPECTED_COLUMNS
     assert bundle["target"] == TARGET
+    np.testing.assert_allclose(bundle["preprocessor"].transform(result.splits.reserved),
+                               result.final_preprocessor.transform(result.splits.reserved))
 
     reserved = result.splits.reserved
     X = pd.DataFrame(
@@ -217,6 +220,9 @@ def test_run_saves_a_bundle_that_reproduces_predictions(tmp_path):
         index=reserved.index,
     )
     assert np.allclose(predict_ols(bundle["model"], X), predict_ols(result.final_model, X))
+    from src.infer import infer
+
+    np.testing.assert_allclose(infer(bundle, reserved).prediction, predict_ols(result.final_model, X))
 
 
 def test_saved_model_does_not_contain_training_rows(tmp_path):

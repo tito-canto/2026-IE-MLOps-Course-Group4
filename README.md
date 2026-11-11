@@ -17,6 +17,11 @@ held-out evaluation predictions; use `python -m src.infer --data <new-records.cs
 for new records. The proposed business quality gate cannot be assessed until the
 similar-customers baseline MAE is measured. Raw data and generated outputs remain untracked.
 
+`src/features.py` defines the shared feature recipe. Training selects the categorical
+reference levels on the training split, fits median imputation on the appropriate fit
+data, and saves the fitted recipe with the OLS model. Inference also accepts older
+bundles containing only the fitted imputer and frozen feature columns.
+
 Run `python -m pytest --cov=src --cov-branch` for tests and coverage. Run
 `python -m flake8 --isolated --max-line-length=120 --extend-ignore=E203 src tests`
 for the course style check.

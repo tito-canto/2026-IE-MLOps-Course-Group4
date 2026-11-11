@@ -27,7 +27,8 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from src.train import prepare_features, predict_ols
+from src.features import transform_saved_features
+from src.train import predict_ols
 from src.config import load_config
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -51,13 +52,7 @@ def infer(bundle: Mapping[str, Any], frame: pd.DataFrame) -> pd.DataFrame:
             clean[column] = clean[column].astype("string").str.strip().str.lower()
         else:
             clean[column] = pd.to_numeric(clean[column], errors="coerce")
-    features = prepare_features(
-        clean, bundle["predictors"], bundle["categorical"], bundle["feature_columns"]
-    )
-    X = pd.DataFrame(
-        bundle["imputer"].transform(features),
-        columns=bundle["feature_columns"], index=frame.index,
-    )
+    X = transform_saved_features(bundle, clean)
     predicted = predict_ols(bundle["model"], X)
     if predicted.shape != (len(frame),) or not np.isfinite(predicted).all():
         raise ValueError("Model must return one finite prediction per row")

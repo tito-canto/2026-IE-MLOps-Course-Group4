@@ -42,8 +42,10 @@ import pandas as pd
 import statsmodels.api as sm
 from sklearn.impute import SimpleImputer
 from sklearn.model_selection import train_test_split
+from sklearn.compose import ColumnTransformer
 
 from src.config import load_config
+from src.features import build_feature_recipe, prepare_features, select_feature_columns
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +70,7 @@ class TrainingResult(NamedTuple):
     train_imputer: SimpleImputer
     final_model: object  # same specification, refit on all development rows
     final_imputer: SimpleImputer
+    final_preprocessor: ColumnTransformer
 
 
 def split_data(clean: pd.DataFrame, seed: int) -> Splits:
@@ -76,42 +79,6 @@ def split_data(clean: pd.DataFrame, seed: int) -> Splits:
     train, test = train_test_split(development, test_size=TEST_SIZE, random_state=seed)
     logger.info("Train: %d | Test: %d | Reserved: %d", len(train), len(test), len(reserved))
     return Splits(development, train, test, reserved)
-
-
-def raw_features(
-    frame: pd.DataFrame, predictors: Sequence[str], categorical: Sequence[str]
-) -> pd.DataFrame:
-    """Return the predictors with every categorical level expanded into a dummy column."""
-    return pd.get_dummies(
-        frame[list(predictors)], columns=list(categorical), drop_first=False, dtype=float
-    ).astype(float)
-
-
-def select_feature_columns(
-    train: pd.DataFrame, predictors: Sequence[str], categorical: Sequence[str]
-) -> list[str]:
-    """Freeze the model's columns from the train split, dropping each variable's first level."""
-    train_all = raw_features(train, predictors, categorical)
-    reference = {}
-    for col in categorical:
-        dummy_cols = sorted(c for c in train_all.columns if c.startswith(f"{col}_"))
-        reference[col] = dummy_cols[0] if dummy_cols else None
-    logger.info("Reference categories: %s", reference)
-    return [c for c in train_all.columns if c not in reference.values()]
-
-
-def prepare_features(
-    frame: pd.DataFrame,
-    predictors: Sequence[str],
-    categorical: Sequence[str],
-    feature_columns: Sequence[str],
-) -> pd.DataFrame:
-    """Encode ``frame`` into the fixed design; levels unseen in training are ignored."""
-    return (
-        raw_features(frame, predictors, categorical)
-        .reindex(columns=list(feature_columns), fill_value=0)
-        .astype(float)
-    )
 
 
 def fit_ols(X: pd.DataFrame, y: pd.Series):
@@ -130,10 +97,22 @@ def fit_model(
     feature_columns: Sequence[str],
 ):
     """Fit a median imputer and the OLS model on ``frame``; return ``(model, imputer)``."""
-    features = prepare_features(frame, predictors, categorical, feature_columns)
-    imputer = SimpleImputer(strategy="median")
-    X = pd.DataFrame(imputer.fit_transform(features), columns=feature_columns, index=frame.index)
-    return fit_ols(X, frame[target]), imputer
+    model, recipe = _fit_model_with_recipe(frame, target, predictors, categorical, feature_columns)
+    return model, recipe.named_transformers_["features"].named_steps["impute"]
+
+
+def _fit_model_with_recipe(
+    frame: pd.DataFrame,
+    target: str,
+    predictors: Sequence[str],
+    categorical: Sequence[str],
+    feature_columns: Sequence[str],
+):
+    """Fit a model and retain its fitted feature recipe."""
+    recipe = build_feature_recipe(predictors, categorical, feature_columns)
+    transformed = recipe.fit_transform(frame)
+    X = pd.DataFrame(transformed, columns=feature_columns, index=frame.index)
+    return fit_ols(X, frame[target]), recipe
 
 
 def train_model(
@@ -154,13 +133,15 @@ def train_model(
     )
     logger.info("OLS summary (train split):\n%s", train_split_model.summary())
 
-    final_model, final_imputer = fit_model(
+    final_model, final_preprocessor = _fit_model_with_recipe(
         splits.development, target, predictors, categorical, feature_columns
     )
+    final_imputer = final_preprocessor.named_transformers_["features"].named_steps["impute"]
     logger.info("Final OLS summary (all development rows):\n%s", final_model.summary())
 
     return TrainingResult(
-        splits, feature_columns, train_split_model, train_imputer, final_model, final_imputer
+        splits, feature_columns, train_split_model, train_imputer, final_model, final_imputer,
+        final_preprocessor,
     )
 
 
@@ -185,6 +166,7 @@ def save_model(
             "categorical": list(categorical),
             "feature_columns": result.feature_columns,
             "target": target,
+            "preprocessor": result.final_preprocessor,
         },
         model_path,
     )
@@ -198,8 +180,11 @@ def save_model(
         index=reserved.index,
     )
     loaded = joblib.load(model_path)
+    loaded_X = pd.DataFrame(
+        loaded['preprocessor'].transform(reserved), columns=result.feature_columns, index=reserved.index
+    )
     if not np.allclose(
-        predict_ols(loaded["model"], X_reserved), predict_ols(result.final_model, X_reserved)
+        predict_ols(loaded["model"], loaded_X), predict_ols(result.final_model, X_reserved)
     ):
         raise ValueError(f"Saved model at {model_path} does not reproduce the fitted model")
     logger.info("Saved model to %s", model_path)

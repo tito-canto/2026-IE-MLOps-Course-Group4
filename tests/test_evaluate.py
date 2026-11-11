@@ -102,7 +102,7 @@ def test_prediction_report_preserves_rows_and_input():
         prediction_report(frame, [1.])
 
 
-@pytest.mark.parametrize("bundle", [False, True])
+@pytest.mark.parametrize("bundle", [False, True, "recipe"])
 @pytest.mark.parametrize("export", [False, True])
 def test_cli_saved_models_and_exports(tmp_path, capsys, bundle, export):
     import json
@@ -120,6 +120,12 @@ def test_cli_saved_models_and_exports(tmp_path, capsys, bundle, export):
     if bundle:
         artifact = dict(model=model, imputer=imputer, predictors=list(train.columns),
                         categorical=["sex"], feature_columns=list(encoded.columns), target="charges")
+        if bundle == "recipe":
+            from src.features import build_feature_recipe
+
+            artifact["preprocessor"] = build_feature_recipe(
+                list(train.columns), ["sex"], list(encoded.columns)
+            ).fit(train)
     else:
         model = LinearRegression().fit(train[["age"]], 10 * train.age)
         artifact = model

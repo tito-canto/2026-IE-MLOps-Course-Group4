@@ -48,7 +48,25 @@ def clean_data(
     numeric: Sequence[str],
     categorical: Sequence[str],
 ) -> pd.DataFrame:
-    """Return a cleaned copy of ``df``; the input DataFrame is never modified."""
+    """Apply the notebook's stateless cleaning and return a new DataFrame.
+
+    Numeric columns and the target are coerced to numbers (unparseable values
+    become NaN), categorical text is stripped and lower-cased, and rows without
+    a target are dropped. Nothing is learned from the data, so the same rules
+    are safe for training and for live requests.
+
+    Args:
+        df: Raw data; it is never modified.
+        target: Name of the target column, e.g. ``"charges"``.
+        numeric: Numeric predictor columns.
+        categorical: Categorical predictor columns.
+
+    Returns:
+        A cleaned copy of ``df`` with a fresh 0..n-1 index and no missing target.
+
+    Raises:
+        KeyError: If any target, numeric or categorical column is missing.
+    """
     required = list(numeric) + list(categorical) + [target]
     missing = [col for col in required if col not in df.columns]
     if missing:
@@ -69,7 +87,19 @@ def clean_data(
 
 
 def run(config_path: Path = DEFAULT_CONFIG_PATH, root: Path = ROOT) -> pd.DataFrame:
-    """Read the raw CSV named in the config, clean it, and write the processed CSV."""
+    """Clean the configured raw CSV and write the processed CSV.
+
+    Args:
+        config_path: YAML settings file with ``paths`` and ``data`` sections.
+        root: Folder that the relative paths in the config resolve against.
+
+    Returns:
+        The cleaned data that was written to ``paths.processed_data``.
+
+    Raises:
+        FileNotFoundError: If the config or raw CSV does not exist.
+        KeyError: If the config or the raw data lacks a required key or column.
+    """
     cfg = load_config(Path(config_path))
     raw_path = root / cfg["paths"]["raw_data"]
     processed_path = root / cfg["paths"]["processed_data"]
@@ -90,6 +120,16 @@ def run(config_path: Path = DEFAULT_CONFIG_PATH, root: Path = ROOT) -> pd.DataFr
 
 
 def main(argv: Sequence[str] | None = None) -> None:
+    """Clean the raw dataset from the command line.
+
+    Run: ``python -m src.clean_data [--config config.yaml] [--root .]``.
+
+    Args:
+        argv: Command line arguments; ``None`` reads them from ``sys.argv``.
+
+    Returns:
+        None. The processed CSV is written to the configured path.
+    """
     parser = argparse.ArgumentParser(description="Clean the raw insurance dataset.")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     parser.add_argument(

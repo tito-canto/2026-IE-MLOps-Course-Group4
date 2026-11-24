@@ -57,6 +57,15 @@ TEST_SIZE = 0.25  # share of the development rows used as the test split
 
 
 class Splits(NamedTuple):
+    """The frozen data splits used for training and evaluation.
+
+    Attributes:
+        development: Train and test rows together (90% of the data).
+        train: Rows the train-split model is fitted on.
+        test: Rows for checking the train-split model.
+        reserved: Final held-out sample (10%), scored once by the quality gate.
+    """
+
     development: pd.DataFrame  # train + test
     train: pd.DataFrame
     test: pd.DataFrame
@@ -64,6 +73,18 @@ class Splits(NamedTuple):
 
 
 class TrainingResult(NamedTuple):
+    """Everything :func:`train_model` produces, ready to save or evaluate.
+
+    Attributes:
+        splits: The frozen data splits.
+        feature_columns: Frozen feature design chosen on the train split.
+        train_model: OLS fitted on the train split only.
+        train_imputer: Median imputer fitted on the train split.
+        final_model: Same specification refitted on all development rows.
+        final_imputer: Median imputer fitted on all development rows.
+        final_preprocessor: Fitted encode-and-impute recipe for the final model.
+    """
+
     splits: Splits
     feature_columns: list[str]
     train_model: object  # OLS fit on the train split, for evaluating on the test split
@@ -74,7 +95,22 @@ class TrainingResult(NamedTuple):
 
 
 def split_data(clean: pd.DataFrame, seed: int) -> Splits:
-    """Set aside the reserved sample, then split the remaining rows into train and test."""
+    """Set aside the reserved sample, then split the rest into train and test.
+
+    The reserved sample (10% of rows) is never used for fitting, so the
+    quality gate is scored on data the final model has not seen.
+
+    Args:
+        clean: Cleaned, validated data.
+        seed: Random seed, so the same data always gives the same splits.
+
+    Returns:
+        A :class:`Splits` with development, train (75% of development), test
+        (25% of development) and reserved rows.
+
+    Raises:
+        ValueError: If there are too few rows to split.
+    """
     development, reserved = train_test_split(clean, test_size=RESERVED_SIZE, random_state=seed)
     train, test = train_test_split(development, test_size=TEST_SIZE, random_state=seed)
     logger.info("Train: %d | Test: %d | Reserved: %d", len(train), len(test), len(reserved))
@@ -82,10 +118,37 @@ def split_data(clean: pd.DataFrame, seed: int) -> Splits:
 
 
 def fit_ols(X: pd.DataFrame, y: pd.Series):
+    """Fit ordinary least squares with an intercept, as in notebook section 6.
+
+    OLS minimises squared error. Model quality is still judged with MAE by the
+    quality gate (see ``quality_gate`` in ``config.yaml`` and the README).
+
+    Args:
+        X: Numeric features without an intercept column.
+        y: Target values aligned with ``X``.
+
+    Returns:
+        The fitted statsmodels ``RegressionResultsWrapper``.
+
+    Raises:
+        ValueError: If ``X`` and ``y`` have different lengths.
+    """
     return sm.OLS(y, sm.add_constant(X, has_constant="add")).fit()
 
 
 def predict_ols(model, X: pd.DataFrame) -> np.ndarray:
+    """Predict with a fitted OLS model, adding the intercept column it expects.
+
+    Args:
+        model: Result returned by :func:`fit_ols`.
+        X: Features with the same columns used for fitting, without an intercept.
+
+    Returns:
+        One predicted target value per row of ``X``.
+
+    Raises:
+        ValueError: If ``X`` does not match the fitted design.
+    """
     return np.asarray(model.predict(sm.add_constant(X, has_constant="add")))
 
 
@@ -96,7 +159,22 @@ def fit_model(
     categorical: Sequence[str],
     feature_columns: Sequence[str],
 ):
-    """Fit a median imputer and the OLS model on ``frame``; return ``(model, imputer)``."""
+    """Fit the feature recipe and OLS model on ``frame``.
+
+    Args:
+        frame: Rows to fit on, including the target.
+        target: Target column name.
+        predictors: Predictor columns, numeric and categorical.
+        categorical: Subset of ``predictors`` that are categorical.
+        feature_columns: Frozen design from :func:`select_feature_columns`.
+
+    Returns:
+        ``(model, imputer)``: the fitted OLS result and the median imputer
+        fitted on ``frame``.
+
+    Raises:
+        KeyError: If a predictor or the target is missing from ``frame``.
+    """
     model, recipe = _fit_model_with_recipe(frame, target, predictors, categorical, feature_columns)
     return model, recipe.named_transformers_["features"].named_steps["impute"]
 
@@ -108,7 +186,22 @@ def _fit_model_with_recipe(
     categorical: Sequence[str],
     feature_columns: Sequence[str],
 ):
-    """Fit a model and retain its fitted feature recipe."""
+    """Fit the feature recipe and OLS model, keeping the whole fitted recipe.
+
+    Args:
+        frame: Rows to fit on, including the target.
+        target: Target column name.
+        predictors: Predictor columns, numeric and categorical.
+        categorical: Subset of ``predictors`` that are categorical.
+        feature_columns: Frozen design from :func:`select_feature_columns`.
+
+    Returns:
+        ``(model, recipe)``: the fitted OLS result and the fitted
+        ``ColumnTransformer`` from :func:`build_feature_recipe`.
+
+    Raises:
+        KeyError: If a predictor or the target is missing from ``frame``.
+    """
     recipe = build_feature_recipe(predictors, categorical, feature_columns)
     transformed = recipe.fit_transform(frame)
     X = pd.DataFrame(transformed, columns=feature_columns, index=frame.index)
@@ -122,7 +215,25 @@ def train_model(
     categorical: Sequence[str],
     seed: int,
 ) -> TrainingResult:
-    """Split ``clean``, fit the model on the train split, and refit it on all development rows."""
+    """Split the data, fit OLS on the train split, then refit on all development rows.
+
+    The train-split model shows how the specification generalises; the refit
+    uses more data for the model that is saved and gated on the reserved sample.
+
+    Args:
+        clean: Cleaned, validated data including the target.
+        target: Target column name, e.g. ``"charges"``.
+        numeric: Numeric predictor columns.
+        categorical: Categorical predictor columns.
+        seed: Random seed for the splits.
+
+    Returns:
+        A :class:`TrainingResult` with the splits, feature design and both models.
+
+    Raises:
+        KeyError: If a predictor or the target is missing from ``clean``.
+        ValueError: If there are too few rows to split.
+    """
     predictors = list(numeric) + list(categorical)
     splits = split_data(clean, seed)
     feature_columns = select_feature_columns(splits.train, predictors, categorical)
@@ -152,7 +263,26 @@ def save_model(
     numeric: Sequence[str],
     categorical: Sequence[str],
 ) -> None:
-    """Save the final model with its preprocessing, then check the file predicts identically."""
+    """Save the final model and its preprocessing as one bundle, then verify it.
+
+    Training rows are stripped from the saved model to keep personal data out
+    of the file. The saved bundle is reloaded and must reproduce the in-memory
+    predictions on the reserved sample.
+
+    Args:
+        result: Output of :func:`train_model`.
+        model_path: Destination ``.joblib`` file; parent folders are created.
+        target: Target column name, stored in the bundle.
+        numeric: Numeric predictor columns.
+        categorical: Categorical predictor columns.
+
+    Returns:
+        None. The bundle is written to ``model_path``.
+
+    Raises:
+        ValueError: If the saved bundle does not reproduce the fitted model.
+        OSError: If the file cannot be written.
+    """
     predictors = list(numeric) + list(categorical)
     saved_model = copy.deepcopy(result.final_model)
     saved_model.remove_data()  # Keep the training rows out of the saved file.
@@ -191,7 +321,19 @@ def save_model(
 
 
 def run(config_path: Path = DEFAULT_CONFIG_PATH, root: Path = ROOT) -> TrainingResult:
-    """Read the processed CSV named in the config, train the model, and save it."""
+    """Train on the configured processed CSV and save the model bundle.
+
+    Args:
+        config_path: YAML settings file with ``paths``, ``data`` and ``variables``.
+        root: Folder that the relative paths in the config resolve against.
+
+    Returns:
+        The :class:`TrainingResult` of the run.
+
+    Raises:
+        FileNotFoundError: If the config or processed CSV does not exist.
+        ValueError: If the saved model does not reproduce the fitted model.
+    """
     cfg = load_config(Path(config_path))
     processed_path = root / cfg["paths"]["processed_data"]
     model_path = root / cfg["paths"]["model"]
@@ -216,6 +358,19 @@ def run(config_path: Path = DEFAULT_CONFIG_PATH, root: Path = ROOT) -> TrainingR
 
 
 def main(argv: Sequence[str] | None = None) -> None:
+    """Train and save the model from the command line.
+
+    Run: ``python -m src.train [--config config.yaml] [--root .]``.
+
+    Args:
+        argv: Command line arguments; ``None`` reads them from ``sys.argv``.
+
+    Returns:
+        None.
+
+    Raises:
+        SystemExit: With code 1 if a file is missing or training fails.
+    """
     parser = argparse.ArgumentParser(description="Train the insurance charges OLS model.")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     parser.add_argument(

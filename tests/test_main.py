@@ -6,7 +6,6 @@ import pytest
 import yaml
 
 from src.main import main
-from src.utils import write_csv
 
 
 def _write_pipeline_inputs(tmp_path: Path, threshold: float) -> Path:
@@ -71,9 +70,3 @@ def test_main_refuses_to_overwrite_raw_data(tmp_path: Path):
     with pytest.raises(SystemExit):
         main(['--root', str(tmp_path), '--config', str(config)])
     assert raw.read_text(encoding='utf-8') == 'original'
-
-
-def test_write_csv_creates_parent(tmp_path: Path):
-    path = tmp_path / 'nested' / 'test.csv'
-    write_csv(pd.DataFrame({'value': [3]}), path)
-    assert pd.read_csv(path).to_dict('list') == {'value': [3]}

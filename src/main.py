@@ -67,7 +67,20 @@ def run(config_path: Path, root: Path = ROOT, raw_path: Path | None = None) -> d
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Parse command line options and execute the pipeline."""
+    """Run the full training pipeline from the command line.
+
+    Run: ``python -m src.main [--config config.yaml] [--root .] [--data raw.csv]``.
+
+    Args:
+        argv: Command line arguments; ``None`` reads them from ``sys.argv``.
+
+    Returns:
+        None. Outputs are written to the configured paths.
+
+    Raises:
+        SystemExit: With code 1 if a file is missing, data is invalid or the
+            model fails the quality gate.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', type=Path, default=ROOT / 'config.yaml')
     parser.add_argument('--root', type=Path, default=ROOT)

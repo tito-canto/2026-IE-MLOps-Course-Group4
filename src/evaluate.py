@@ -44,7 +44,21 @@ GATE_DIRECTIONS = {"r2": "higher", "mae": "lower", "rmse": "lower"}
 
 
 def predict(model: Any, X: pd.DataFrame) -> np.ndarray:
-    """Predict with a fitted model; statsmodels OLS results get the intercept added."""
+    """Predict with any fitted model, adding the intercept for statsmodels OLS.
+
+    Lets evaluation score both the notebook's OLS results and ordinary
+    scikit-learn pipelines through one call.
+
+    Args:
+        model: A statsmodels OLS result or any object with ``predict(X)``.
+        X: Features in the layout the model was fitted on.
+
+    Returns:
+        One float prediction per row of ``X``.
+
+    Raises:
+        ValueError: If ``X`` does not match the fitted design.
+    """
     if isinstance(model, RegressionResultsWrapper):
         X = sm.add_constant(X, has_constant="add")
     return np.asarray(model.predict(X), dtype=float)
@@ -53,7 +67,23 @@ def predict(model: Any, X: pd.DataFrame) -> np.ndarray:
 def scores(
     y_true: Sequence[float], y_pred: Sequence[float], metrics: Sequence[str] = DEFAULT_METRICS
 ) -> dict[str, float]:
-    """Compare actual and predicted values; returns {metric_name: plain float}."""
+    """Score predictions against actual values with the requested metrics.
+
+    Plain floats are easy to log, compare between runs and feed to
+    :func:`check_quality_gate`.
+
+    Args:
+        y_true: Actual target values.
+        y_pred: Predicted values, same length as ``y_true``.
+        metrics: Metric names from ``METRICS`` (``"r2"``, ``"mae"``, ``"rmse"``).
+
+    Returns:
+        ``{metric_name: value}``, e.g. ``{"mae": 4035.4}``.
+
+    Raises:
+        ValueError: If the inputs differ in shape, are empty or contain NaN,
+            or a metric name is unknown.
+    """
     y_true = np.asarray(y_true, dtype=float)
     y_pred = np.asarray(y_pred, dtype=float)
     if y_true.shape != y_pred.shape:
@@ -75,12 +105,34 @@ def evaluate(
     y_eval: Sequence[float],
     metrics: Sequence[str] = DEFAULT_METRICS,
 ) -> dict[str, float]:
-    """Score a fitted model on held-out data (never the training split)."""
+    """Score a fitted model on held-out data.
+
+    Never pass training rows: scores on training data hide overfitting.
+
+    Args:
+        model: A statsmodels OLS result or any object with ``predict(X)``.
+        X_eval: Held-out features in the layout the model was fitted on.
+        y_eval: Actual target values for ``X_eval``.
+        metrics: Metric names from ``METRICS``.
+
+    Returns:
+        ``{metric_name: value}`` for the held-out rows.
+
+    Raises:
+        ValueError: If predictions and targets do not line up, or a metric is unknown.
+    """
     return scores(y_eval, predict(model, X_eval), metrics)
 
 
 def metrics_from_config(cfg: Mapping[str, Any]) -> list[str]:
-    """Read evaluation.metrics from the config, falling back to the defaults."""
+    """Read which metrics to compute from the config.
+
+    Args:
+        cfg: Loaded configuration; ``evaluation.metrics`` is optional.
+
+    Returns:
+        The configured metric names, or ``["r2", "mae", "rmse"]`` if not set.
+    """
     return list(cfg.get("evaluation", {}).get("metrics", DEFAULT_METRICS))
 
 
@@ -127,9 +179,22 @@ def check_quality_gate(
 def prediction_report(
     frame: pd.DataFrame, predicted: Sequence[float], target: str = "charges"
 ) -> pd.DataFrame:
-    """Extract the row-level error report from notebook section 9.
+    """Build the row-level error report from notebook section 9.
 
-    Predictions follow row order, preserving the held-out frame's index.
+    Row-level errors show which customers the model under- or overestimates,
+    which a single MAE value hides.
+
+    Args:
+        frame: Held-out rows including the target; not modified.
+        predicted: One prediction per row of ``frame``, in row order.
+        target: Target column name.
+
+    Returns:
+        A copy of ``frame`` (same index) with ``predicted_charges``,
+        ``residual`` (actual minus predicted) and ``absolute_error`` columns.
+
+    Raises:
+        ValueError: If there is not exactly one prediction per row.
     """
     predicted = np.asarray(predicted, dtype=float)
     if predicted.shape != (len(frame),):
@@ -142,12 +207,24 @@ def prediction_report(
 
 
 def main(argv: Sequence[str] | None = None) -> dict[str, float]:
-    """Evaluate an explicitly supplied held-out CSV using a saved model.
+    """Evaluate a saved model on an explicitly supplied held-out CSV.
 
     Run: python -m src.evaluate --data held_out.csv [--model model.joblib]
     Notebook bundles receive their saved encoding and imputation; ordinary
     fitted pipelines receive raw predictor columns. No preprocessing is fitted.
     Only load trusted joblib artifacts.
+
+    Args:
+        argv: Command line arguments; ``None`` reads them from ``sys.argv``.
+
+    Returns:
+        ``{metric_name: value}``, also printed as JSON. With ``--output-dir``,
+        scores and row-level predictions are written as CSVs.
+
+    Raises:
+        FileNotFoundError: If the config, model or data file does not exist.
+        KeyError: If the data lacks the target or a predictor column.
+        ValueError: If scoring fails (see :func:`scores`).
     """
     from src.config import load_config
 

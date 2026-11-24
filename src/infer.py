@@ -36,10 +36,22 @@ DEFAULT_CONFIG_PATH = ROOT / "config.yaml"
 
 
 def infer(bundle: Mapping[str, Any], frame: pd.DataFrame) -> pd.DataFrame:
-    """Predict from the notebook's saved bundle (sections 6, 9 and 11).
+    """Predict charges for new records with a saved model bundle.
 
-    Reuse the frozen design and fitted imputer without fitting on new rows.
-    Apply the notebook's stateless predictor cleaning without requiring a target.
+    Applies the same stateless cleaning as training, then the bundle's frozen
+    design and fitted imputer. Nothing is fitted on the new rows, so batch and
+    live predictions match. No target column is needed.
+
+    Args:
+        bundle: Saved bundle from :func:`src.train.save_model`.
+        frame: New records with every predictor column; extra columns are ignored.
+
+    Returns:
+        A DataFrame with one ``prediction`` column and the same index as ``frame``.
+
+    Raises:
+        ValueError: If a predictor is missing, ``frame`` is empty, or the model
+            does not return one finite prediction per row.
     """
     missing = sorted(set(bundle["predictors"]) - set(frame.columns))
     if missing:
@@ -60,7 +72,21 @@ def infer(bundle: Mapping[str, Any], frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def main(argv: Sequence[str] | None = None) -> pd.DataFrame:
-    """Load a trusted saved bundle and predict every row of an explicit input CSV."""
+    """Predict every row of an input CSV from the command line.
+
+    Run: ``python -m src.infer --data new_records.csv [--model ...] [--output ...]``.
+    Only load trusted joblib artifacts.
+
+    Args:
+        argv: Command line arguments; ``None`` reads them from ``sys.argv``.
+
+    Returns:
+        The predictions, also written to the output CSV.
+
+    Raises:
+        ValueError: If the output path would overwrite an input, or inference fails.
+        FileNotFoundError: If the config, model or data file does not exist.
+    """
     parser = argparse.ArgumentParser(description=main.__doc__)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     parser.add_argument("--root", type=Path, default=ROOT, help="Base folder for config paths")

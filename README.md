@@ -87,20 +87,52 @@ The sales team wants to predict how much it will cost the company to provide cov
 
 Today they determine this based on previous costs for customers with similar contexts.
 
-**Baseline:** insurance cost = amount billed per customer, source: historical financial statements. Value: To be measured.
+**Baseline (similar-customers method), measured:** each customer's cost is estimated as the
+mean `charges` of past customers with the same smoker status, age band (under 30, 30–39,
+40–49, 50+) and BMI band (WHO: under 18.5, 18.5–25, 25–30, 30+). Past customers are the
+development rows; the estimate is scored on the reserved sample (134 customers, seed 47),
+the same rows the model's quality gate uses.
+
+| Measure (reserved sample, n = 134) | Similar-customers baseline | Current OLS model |
+| --- | --- | --- |
+| `mae` (in `charges` units per customer per year) | **2,423.5** | 4,035.4 |
+| Cost-underestimation rate | **26.1%** | 41.0% |
+| For reference: `mae` of predicting the overall mean | 9,932.0 | n/a |
+
+The current OLS model does **not** beat the baseline: its MAE is 66% higher and it
+underestimates more customers. Every group in the baseline had matching past customers, so
+no fallback was needed. These values come from the historical dataset; the live rate must be
+re-measured on real sales quotes.
 
 ### Goal and success metrics
 
 | Type | Metric (exact name) | Baseline | Target or threshold |
 | --- | --- | --- | --- |
-| Business KPI | Customer cost-underestimation rate (percentage of customers whose actual medical charges exceed the estimated coverage cost) | To be measured | At least 20% below the baseline rate within 6 months of deployment (proposed target) |
-| ML metric (quality gate) | `mae` on unseen data | `mae` of the similar-customers method, To be measured | `model_mae <= 0.90 * baseline_mae` (proposed target) |
+| Business KPI | Customer cost-underestimation rate (percentage of customers whose actual medical charges exceed the estimated coverage cost) | 26.1% (historical data) | At least 20% below the baseline rate, i.e. 20.9% or lower, within 6 months of deployment (proposed target) |
+| ML metric (quality gate) | `mae` on the reserved sample | 2,423.5 (similar-customers method) | `model_mae <= 0.90 * baseline_mae` = **2,181.2**, enforced as `quality_gate` in `config.yaml` |
 | Limit | Response time | n/a | Under 1 second |
 | Limit | Cost per prediction | n/a | Under $0.01 |
 
-- The business KPI uses a relative improvement because the current underestimation rate is unknown
-- Before deployment, both `mae` values are calculated on the same held-out dataset to ensure a fair comparison
+- Both `mae` values are calculated on the same reserved sample, so the comparison is fair
+- Every `python -m src.main` run checks the gate and stops with `Quality gate failed` when the
+  model misses it, so a run always says whether the model meets the MAE target
 - The 10% and 20% improvements are proposed targets, not measured company results
+
+#### Training loss vs. evaluation metric
+
+The model is fitted with ordinary least squares (OLS), which minimises **squared** error and
+predicts the average cost. The case is judged on **MAE**, the average absolute error in
+`charges` units per customer, because that is the money the sales team gets wrong on a typical
+quote. The two do not reward the same thing: squared error gives large errors far more weight,
+so a few very expensive customers (mostly smokers with high BMI) pull the OLS fit, and a model
+with a good squared error can still have a poor MAE.
+
+We keep OLS for now because it is the notebook's agreed, explainable model, and we close the
+gap by **judging every run on MAE** through the quality gate, not on the loss the model was
+trained with. The current OLS fit fails that gate. Next options, in order: add the smoker ×
+BMI and smoker × age interactions the baseline groups capture, then try a model that
+minimises absolute error directly (median/quantile regression). Any replacement must pass the
+same gate.
 
 ### Solution
 
@@ -118,6 +150,33 @@ If the model is unavailable or unsure: fall back to generic plan options.
 - **Refresh:** data will be refreshed using new historical data captured throughout the year
 - **Data safety:** everything is encrypted, and devices format themselves after more than 10 wrong password attempts in a row
 
+#### Personal data
+
+**Yes, this is personal data, and part of it is health data.** In production every input row
+describes a real, identifiable prospect captured during a sales meeting. `bmi` and `smoker`
+reveal health information, which the GDPR treats as a special category (Art. 9): it needs an
+explicit legal basis (for example explicit consent), a data protection impact assessment
+before go-live, and only the fields the model really needs. The Kaggle training data has no
+names or IDs, but it holds the same health fields.
+
+Which fields we really need, based on the OLS fit on all development rows:
+
+| Field | Sensitivity | Effect on `charges` (coefficient, p-value) | Decision |
+| --- | --- | --- | --- |
+| `smoker` | Health data | +23,450 for smokers, p < 0.001 (largest effect) | Needed |
+| `age` | Personal | +261 per year, p < 0.001 | Needed |
+| `bmi` | Health data | +338 per BMI point, p < 0.001 | Needed |
+| `children` | Personal | +436 per child, p = 0.003 | Needed (small effect, low sensitivity) |
+| `region` | Personal | Only `southeast` differs (−1,049, p = 0.039) | Under review; drop if a model without it passes the gate |
+| `sex` | Personal, protected characteristic | −17, p = 0.96 (no effect) | **Not needed.** Remove from `config.yaml` in the next model iteration |
+
+What we do **not** collect or keep: names, contact details, ID or policy numbers, and any
+other health data. The model needs none of them. Inputs are used to produce a quote and are
+not stored next to an identifier. The saved model drops its training rows (`remove_data()` in
+`src/train.py`), and raw data and outputs stay out of Git (`.gitignore`). Device encryption
+protects the data at rest, but minimisation is the main safeguard: the less we collect, the
+less can leak.
+
 ### Value, cost and risks
 
 - **Benefit over a non-AI approach:** more accurate cost estimates than manually selecting customers with similar characteristics, reducing financial losses from underestimating coverage costs. Measured by a 20% reduction in the customer cost-underestimation rate
@@ -134,9 +193,10 @@ If the model is unavailable or unsure: fall back to generic plan options.
 
 - **Project name:** not decided
 - **Context:** realistic target level (manual, pipeline or automated delivery) not chosen
-- **Problem:** pain point (what goes wrong with the current method) not stated; baseline value, unit and period To be measured
+- **Problem:** pain point (what goes wrong with the current method) not stated; the baseline is measured on historical data only and is computed by a one-off analysis, not yet a pipeline step
+- **Model:** the current OLS model fails the MAE quality gate (4,035.4 vs. 2,181.2 required) and does not beat the similar-customers baseline; it is not fit for use
 - **Metrics:** `mae` does not measure the direction of errors, so the model could pass the gate while underestimating more customers (accepted risk, no mitigation yet)
 - **Solution:** legal or policy basis for using `sex` and `bmi` not documented; future coverage decisions in or out of scope not decided; person responsible for the final decision not named; no rule for what triggers the fallback; GitHub Pages cannot serve real-time predictions, so hosting must be revisited
-- **Data:** owner, licence and whether the data is simulated To be confirmed; label source not stated; retraining frequency not set, and labels only arrive after a full year of coverage; self-reported `smoker` and `bmi` not addressed; personal data yes/no and minimisation not stated
+- **Data:** owner, licence and whether the data is simulated To be confirmed; label source not stated; retraining frequency not set, and labels only arrive after a full year of coverage; self-reported `smoker` and `bmi` not addressed; legal basis for processing health data and the impact assessment not yet done; `sex` still in the model although it is not needed
 - **Risks:** no data quality or operational risk listed; `mae` monitoring is delayed by about a year with no early-warning monitor; infrastructure cost conflicts with tools rated LOW and is not labelled as an estimate
 - **Key takeaway:** client not named; no reproducibility, testing or monitoring benefit named; mentions operating costs, which the KPI does not measure

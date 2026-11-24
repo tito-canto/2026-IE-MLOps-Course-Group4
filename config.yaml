@@ -32,8 +32,11 @@ variables:
 evaluation:
   metrics: ["r2", "mae", "rmse"]
 # Go/no-go decision on the reserved sample. mae/rmse pass when value <= threshold,
-# r2 passes when value >= threshold. 4500 is provisional (current model: ~4035);
-# replace it with 0.90 * baseline_mae once the baseline is measured (see README).
+# r2 passes when value >= threshold.
+# The model is trained with squared error (OLS) but the business case promises an MAE
+# target, so the gate checks MAE. Threshold = 0.90 * baseline_mae, where baseline_mae
+# = 2423.5 is the similar-customers method on the same reserved sample (see README,
+# "Problem and baseline"). The current OLS model scores ~4035 and fails this gate.
 quality_gate:
   metric: "mae"
-  threshold: 4500
+  threshold: 2181.2

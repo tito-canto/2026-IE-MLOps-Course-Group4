@@ -5,6 +5,7 @@ import pandas.testing as pdt
 import pytest
 import yaml
 
+from src import validate
 from src.clean_data import clean_data, main, run
 
 TARGET = "charges"
@@ -134,3 +135,33 @@ def test_repo_config_has_cleaning_settings():
     data = cfg["data"]
     assert data["target"] == TARGET
     assert set(data["numeric"] + data["categorical"]) == set(data["feature"])
+
+
+# ---------- integration: clean_data -> validate ----------
+
+def test_cleaned_data_passes_validation(
+        messy_raw_frame, column_kwargs, validate_kwargs, expected_clean_rows):
+    cleaned = clean_data(messy_raw_frame, **column_kwargs)
+    assert validate.validate_data(
+        cleaned, **validate_kwargs, expected_rows=expected_clean_rows) is True
+
+
+def test_uncleaned_data_fails_validation(messy_raw_frame, validate_kwargs):
+    with pytest.raises(ValueError, match="must be numeric") as exc:
+        validate.validate_data(messy_raw_frame, **validate_kwargs)
+    assert "missing values" in str(exc.value)
+
+
+def test_processed_csv_written_by_run_passes_validate_run(project):
+    run(project, root=project.parent)
+    assert validate.run(project, root=project.parent) is True
+
+
+def test_validate_run_fails_when_cleaning_drops_unexpected_rows(project):
+    cfg = yaml.safe_load(project.read_text())
+    cfg["validation"]["expected_rows"] += 1
+    project.write_text(yaml.safe_dump(cfg))
+    run(project, root=project.parent)
+
+    with pytest.raises(ValueError, match="Expected"):
+        validate.run(project, root=project.parent)

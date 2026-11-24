@@ -1,30 +1,71 @@
 # [Project name: to be decided]
 
+## Setup
+
+You need [Git](https://git-scm.com/) and [Miniconda or Anaconda](https://docs.conda.io/en/latest/miniconda.html).
+Run every command from the repository root.
+
+1. **Clone the repository**
+
+   ```bash
+   git clone https://github.com/tito-canto/2026-IE-MLOps-Course-Group4.git
+   cd 2026-IE-MLOps-Course-Group4
+   ```
+
+2. **Create and activate the environment** (Python 3.10, pinned packages, test and style tools)
+
+   ```bash
+   conda env create -f environment.yml
+   conda activate insurance-mlops
+   ```
+
+   To update an existing environment after `environment.yml` changes, run
+   `conda env update -f environment.yml --prune`.
+
+   Without conda: use Python 3.11 or newer (some pins in `requirements.txt` need it), then
+   `python -m venv .venv`, activate it, and run
+   `pip install -r requirements.txt pytest-cov flake8`.
+
+3. **Add the data.** Download `insurance.csv` from
+   [Kaggle](https://www.kaggle.com/datasets/mosapabdelghany/medical-insurance-cost-dataset)
+   and save it as `data/raw/insurance.csv`. The `data/` folders are git-ignored, so the file
+   is never committed. You can also keep it elsewhere and pass `--data` (see below).
+
+4. **Secrets.** None are needed yet. `.env.example` lists the names that later stages will
+   need; copy it to `.env` and fill in values only when a stage asks for them. Never commit `.env`.
+
+5. **Check the setup.** Both commands should finish without errors:
+
+   ```bash
+   python -m pytest --cov=src --cov-branch
+   python -m flake8 --isolated --max-line-length=120 --extend-ignore=E203 src tests
+   ```
+
 ## Running the pipeline
 
-Create and activate the environment in `environment.yml`. Put the insurance CSV at
-`data/raw/insurance.csv`, or supply its local path without copying it into the repository.
-Replace the example path below with the location of your CSV:
-
-```powershell
-python -m src.main --data "C:\path\to\insurance.csv"
+```bash
+python -m src.main                                     # uses data/raw/insurance.csv
+python -m src.main --data "C:\path\to\insurance.csv"   # or any local copy
 ```
 
-The command cleans and validates the data, trains the notebook's OLS model, and evaluates
-the final model on the reserved sample. It writes the cleaned CSV, model bundle and
-reserved-sample predictions to the configured paths. Predictions from this command are
-held-out evaluation predictions; use `python -m src.infer --data <new-records.csv>`
-for new records. The proposed business quality gate cannot be assessed until the
-similar-customers baseline MAE is measured. Raw data and generated outputs remain untracked.
+The command cleans and validates the data, trains the notebook's OLS model, and scores the
+final model on the reserved sample (10% of rows, never used for fitting). It writes the
+cleaned CSV, model bundle and reserved-sample predictions to the paths in `config.yaml`, then
+applies the **quality gate** (`quality_gate` in `config.yaml`): if the reserved-sample MAE is
+above the threshold, it logs `Quality gate failed` and exits with code 1. With the current
+threshold (0.90 × the measured baseline MAE, see [Goal and success metrics](#goal-and-success-metrics))
+the current OLS model **fails the gate**; this is the expected, honest result until a better
+model is trained.
+
+Predictions from this command are held-out evaluation predictions. For new records use
+`python -m src.infer --data <new-records.csv>`. Each step can also run on its own:
+`python -m src.load_data`, `src.clean_data`, `src.validate`, `src.train` and
+`python -m src.evaluate --data <held-out.csv>`. Raw data and generated outputs remain untracked.
 
 `src/features.py` defines the shared feature recipe. Training selects the categorical
 reference levels on the training split, fits median imputation on the appropriate fit
 data, and saves the fitted recipe with the OLS model. Inference also accepts older
 bundles containing only the fitted imputer and frozen feature columns.
-
-Run `python -m pytest --cov=src --cov-branch` for tests and coverage. Run
-`python -m flake8 --isolated --max-line-length=120 --extend-ignore=E203 src tests`
-for the course style check.
 
 > The insurance company should invest in an MLOps cost-prediction solution to reduce operational costs and improve accuracy over manual historical comparisons.
 

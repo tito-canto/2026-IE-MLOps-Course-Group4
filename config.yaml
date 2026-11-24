@@ -31,3 +31,9 @@ variables:
   seed: 47
 evaluation:
   metrics: ["r2", "mae", "rmse"]
+# Go/no-go decision on the reserved sample. mae/rmse pass when value <= threshold,
+# r2 passes when value >= threshold. 4500 is provisional (current model: ~4035);
+# replace it with 0.90 * baseline_mae once the baseline is measured (see README).
+quality_gate:
+  metric: "mae"
+  threshold: 4500

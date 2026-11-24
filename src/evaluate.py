@@ -39,6 +39,8 @@ METRICS = {
     "rmse": lambda y, p: float(np.sqrt(mean_squared_error(y, p))),
 }
 DEFAULT_METRICS = ("r2", "mae", "rmse")
+# Whether a smaller ("lower") or larger ("higher") value means a better model.
+GATE_DIRECTIONS = {"r2": "higher", "mae": "lower", "rmse": "lower"}
 
 
 def predict(model: Any, X: pd.DataFrame) -> np.ndarray:
@@ -80,6 +82,46 @@ def evaluate(
 def metrics_from_config(cfg: Mapping[str, Any]) -> list[str]:
     """Read evaluation.metrics from the config, falling back to the defaults."""
     return list(cfg.get("evaluation", {}).get("metrics", DEFAULT_METRICS))
+
+
+def check_quality_gate(
+    metrics: Mapping[str, float], cfg: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Decide whether a model's held-out metrics clear the configured quality gate.
+
+    The gate is read from ``cfg["quality_gate"]`` with keys ``metric`` (one of
+    METRICS) and ``threshold`` (a finite number). Lower-is-better metrics pass
+    when ``value <= threshold``; higher-is-better metrics pass when
+    ``value >= threshold``.
+
+    Args:
+        metrics: Scores returned by :func:`scores`, e.g. ``{"mae": 4035.4}``.
+        cfg: Loaded configuration containing a ``quality_gate`` section.
+
+    Returns:
+        ``{"metric", "value", "threshold", "direction", "passed"}`` describing the decision.
+
+    Raises:
+        ValueError: If the gate section is missing or malformed, or its metric
+            was not computed for this run.
+    """
+    gate = cfg.get("quality_gate")
+    if not isinstance(gate, Mapping):
+        raise ValueError("Config needs a 'quality_gate' section with 'metric' and 'threshold'")
+    metric, threshold = gate.get("metric"), gate.get("threshold")
+    if metric not in GATE_DIRECTIONS:
+        raise ValueError(f"quality_gate.metric must be one of {sorted(GATE_DIRECTIONS)}, got {metric!r}")
+    if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not np.isfinite(threshold):
+        raise ValueError(f"quality_gate.threshold must be a finite number, got {threshold!r}")
+    if metric not in metrics:
+        raise ValueError(
+            f"Quality gate metric {metric!r} was not computed; add it to evaluation.metrics"
+        )
+    value = float(metrics[metric])
+    direction = GATE_DIRECTIONS[metric]
+    passed = value <= threshold if direction == "lower" else value >= threshold
+    return {"metric": metric, "value": value, "threshold": float(threshold),
+            "direction": direction, "passed": bool(passed)}
 
 
 def prediction_report(

@@ -6,7 +6,7 @@ import statsmodels.api as sm
 from sklearn.linear_model import LinearRegression
 
 from src.config import load_config
-from src.evaluate import DEFAULT_METRICS, evaluate, metrics_from_config, predict, scores
+from src.evaluate import DEFAULT_METRICS, check_quality_gate, evaluate, metrics_from_config, predict, scores
 from src.clean_data import DEFAULT_CONFIG_PATH
 
 
@@ -158,3 +158,30 @@ def test_cli_requires_explicit_held_out_data():
     with pytest.raises(SystemExit) as exc:
         main([])
     assert exc.value.code == 2
+
+
+@pytest.mark.parametrize("metric, value, threshold, passed", [
+    ("mae", 4000.0, 4500, True), ("mae", 4600.0, 4500, False),
+    ("rmse", 4500.0, 4500, True), ("r2", 0.8, 0.75, True), ("r2", 0.7, 0.75, False),
+])
+def test_quality_gate_direction(metric, value, threshold, passed):
+    cfg = {"quality_gate": {"metric": metric, "threshold": threshold}}
+    result = check_quality_gate({metric: value}, cfg)
+    assert result["passed"] is passed
+    assert result["value"] == value
+
+
+@pytest.mark.parametrize("gate, message", [
+    (None, "quality_gate"), ({"metric": "mape", "threshold": 1}, "metric"),
+    ({"metric": "mae", "threshold": "low"}, "threshold"), ({"metric": "mae", "threshold": True}, "threshold"),
+    ({"metric": "mae", "threshold": float("nan")}, "threshold"), ({"metric": "r2", "threshold": 0.5}, "not computed"),
+])
+def test_quality_gate_rejects_bad_config(gate, message):
+    cfg = {} if gate is None else {"quality_gate": gate}
+    with pytest.raises(ValueError, match=message):
+        check_quality_gate({"mae": 1.0}, cfg)
+
+
+def test_project_config_gate_matches_scored_metrics():
+    cfg = load_config(DEFAULT_CONFIG_PATH)
+    assert cfg["quality_gate"]["metric"] in metrics_from_config(cfg)

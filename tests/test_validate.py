@@ -6,6 +6,9 @@ import pandas.testing as pdt
 import pytest
 import yaml
 
+import numpy as np
+
+from src import clean_data, train
 from src.validate import DEFAULT_CONFIG_PATH, main, run, validate_data
 
 TARGET = "charges"
@@ -187,3 +190,41 @@ def test_repo_config_has_validation_settings():
     assert cfg["validation"]["expected_rows"] == 1338
     assert data["target"] in data["required_columns"]
     assert set(data["numeric"]).issubset(data["required_columns"])
+
+
+# ---------- integration: validate -> train (the split) ----------
+
+def test_validated_data_is_split_and_trained(
+        messy_raw_frame, column_kwargs, validate_kwargs):
+    cleaned = clean_data.clean_data(messy_raw_frame, **column_kwargs)
+    assert validate_data(cleaned, **validate_kwargs)
+
+    result = train.train_model(cleaned, **column_kwargs, seed=47)
+
+    splits = result.splits
+    used = splits.train.index.append(splits.test.index)
+    assert sorted(used.append(splits.reserved.index)) == list(cleaned.index)
+    assert splits.development.index.intersection(splits.reserved.index).empty
+    X = pd.DataFrame(result.final_preprocessor.transform(splits.reserved),
+                     columns=result.feature_columns)
+    assert np.isfinite(train.predict_ols(result.final_model, X)).all()
+
+
+def test_missing_predictor_allowed_by_validation_is_imputed_in_training(
+        raw_frame, column_kwargs, validate_kwargs):
+    raw_frame.loc[0:5, "bmi"] = np.nan
+    assert validate_data(raw_frame, **validate_kwargs)
+
+    result = train.train_model(raw_frame, **column_kwargs, seed=47)
+
+    assert np.isfinite(result.final_model.params).all()
+
+
+def test_validate_run_then_train_run_saves_a_model(project):
+    root = project.parent
+    clean_data.run(project, root=root)
+    assert run(project, root=root) is True
+
+    train.run(project, root=root)
+
+    assert (root / "models" / "model.joblib").exists()

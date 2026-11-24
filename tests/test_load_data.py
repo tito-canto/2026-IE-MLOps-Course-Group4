@@ -7,6 +7,7 @@ import pytest
 import yaml
 
 from src import load_data as ld
+from src.clean_data import clean_data
 
 COLUMNS = ["age", "sex", "bmi", "children", "smoker", "region", "charges"]
 CSV_TEXT = (
@@ -122,3 +123,49 @@ def test_main_fails_when_config_points_to_missing_file(tmp_path, monkeypatch):
 
     with pytest.raises(FileNotFoundError):
         ld.main()
+
+
+# ---------- integration: load_data -> clean_data ----------
+
+def test_loaded_messy_data_is_cleaned(project, schema, column_kwargs,
+                                      expected_clean_rows):
+    raw_path = project.parent / "data" / "raw" / "insurance.csv"
+    raw = ld.load_data(raw_path, required_columns=schema["required_columns"])
+
+    cleaned = clean_data(raw, **column_kwargs)
+
+    assert len(cleaned) == expected_clean_rows
+    for column in schema["numeric"] + [schema["target"]]:
+        assert pd.api.types.is_numeric_dtype(cleaned[column]), column
+    for column in schema["categorical"]:
+        values = cleaned[column].dropna()
+        assert (values == values.str.strip().str.lower()).all(), column
+    assert cleaned[schema["target"]].notna().all()
+
+
+def test_cleaning_does_not_change_the_loaded_frame(project, column_kwargs):
+    raw = ld.load_data(project.parent / "data" / "raw" / "insurance.csv")
+    before = raw.copy(deep=True)
+    clean_data(raw, **column_kwargs)
+    pd.testing.assert_frame_equal(raw, before)
+
+
+def test_loaded_tidy_data_keeps_every_row_through_cleaning(
+        tmp_path, raw_frame, schema, column_kwargs):
+    path = tmp_path / "insurance.csv"
+    raw_frame.to_csv(path, index=False)
+
+    raw = ld.load_data(path, required_columns=schema["required_columns"])
+    cleaned = clean_data(raw, **column_kwargs)
+
+    pd.testing.assert_frame_equal(cleaned, raw_frame, check_dtype=False)
+
+
+def test_column_missing_from_loaded_data_stops_cleaning(
+        tmp_path, raw_frame, column_kwargs):
+    path = tmp_path / "insurance.csv"
+    raw_frame.drop(columns="smoker").to_csv(path, index=False)
+
+    raw = ld.load_data(path)  # no required_columns: the gap reaches cleaning
+    with pytest.raises(KeyError, match="smoker"):
+        clean_data(raw, **column_kwargs)

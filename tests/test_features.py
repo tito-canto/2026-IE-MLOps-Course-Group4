@@ -37,5 +37,7 @@ def test_encoding_keeps_index_and_original_data():
 
 def test_recipe_rejects_missing_columns():
     recipe = build_feature_recipe(['age', 'sex'], ['sex'], ['age', 'sex_m'])
-    with pytest.raises((KeyError, ValueError), match='sex'):
+    with pytest.raises((KeyError, ValueError)) as exc:
         recipe.fit(pd.DataFrame({'age': [20.]}))
+    # Recent scikit-learn names the missing column in the chained KeyError.
+    assert 'sex' in str(exc.value) + str(exc.value.__cause__)

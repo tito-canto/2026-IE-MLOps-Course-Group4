@@ -8,7 +8,7 @@ from typing import Sequence
 
 from src.clean_data import clean_data
 from src.config import load_config
-from src.evaluate import metrics_from_config, scores
+from src.evaluate import check_quality_gate, metrics_from_config, scores
 from src.infer import infer
 from src.load_data import audit_data, load_data
 from src.train import save_model, train_model
@@ -20,7 +20,20 @@ logger = logging.getLogger(__name__)
 
 
 def run(config_path: Path, root: Path = ROOT, raw_path: Path | None = None) -> dict[str, float]:
-    """Train on development data and score predictions on the reserved sample."""
+    """Train on development data, score the reserved sample and apply the quality gate.
+
+    Args:
+        config_path: YAML settings file (paths, data, evaluation, quality_gate).
+        root: Directory that relative configured paths resolve against.
+        raw_path: Optional raw CSV overriding ``paths.raw_data``.
+
+    Returns:
+        Reserved-sample metrics, e.g. ``{"mae": 4035.4}``, when the gate passes.
+
+    Raises:
+        ValueError: If paths collide, data is invalid, the gate is misconfigured,
+            or the model fails the quality gate.
+    """
     cfg = load_config(config_path)
     paths, data = cfg['paths'], cfg['data']
     source = raw_path if raw_path is not None else root / paths['raw_data']
@@ -44,7 +57,12 @@ def run(config_path: Path, root: Path = ROOT, raw_path: Path | None = None) -> d
     metrics = scores(reserved[data['target']], predictions['prediction'], metrics_from_config(cfg))
     write_csv(predictions, root / paths['predictions'] / 'predictions.csv')
     logger.info('Reserved-sample metrics: %s', metrics)
-    logger.info('Baseline MAE is not measured; the business quality gate cannot be assessed')
+    gate = check_quality_gate(metrics, cfg)
+    symbol = '<=' if gate['direction'] == 'lower' else '>='
+    summary = f"{gate['metric']}={gate['value']:.4f} (required {symbol} {gate['threshold']:.4f})"
+    if not gate['passed']:
+        raise ValueError(f'Quality gate failed: {summary}; the model is not good enough to use')
+    logger.info('Quality gate passed: %s', summary)
     return metrics
 
 

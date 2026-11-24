@@ -9,7 +9,8 @@ from src.main import main
 from src.utils import write_csv
 
 
-def test_main_runs_pipeline(tmp_path: Path):
+def _write_pipeline_inputs(tmp_path: Path, threshold: float) -> Path:
+    """Write a small raw CSV and a config gated on mae; return the config path."""
     rows = 80
     frame = pd.DataFrame({
         'age': range(20, 20 + rows), 'sex': ['female', 'male'] * 40,
@@ -24,13 +25,29 @@ def test_main_runs_pipeline(tmp_path: Path):
            'data': {'required_columns': list(frame.columns), 'target': 'charges',
                     'numeric': ['age', 'bmi', 'children'], 'categorical': ['sex', 'smoker', 'region']},
            'validation': {'expected_rows': rows}, 'variables': {'seed': 47},
-           'evaluation': {'metrics': ['mae']}}
+           'evaluation': {'metrics': ['mae']},
+           'quality_gate': {'metric': 'mae', 'threshold': threshold}}
     config = tmp_path / 'config.yaml'
     config.write_text(yaml.safe_dump(cfg), encoding='utf-8')
-    main(['--root', str(tmp_path), '--config', str(config)])
+    return config
+
+
+def test_main_runs_pipeline(tmp_path: Path, caplog):
+    config = _write_pipeline_inputs(tmp_path, threshold=1e9)
+    with caplog.at_level('INFO'):
+        main(['--root', str(tmp_path), '--config', str(config)])
+    assert 'Quality gate passed' in caplog.text
     assert (tmp_path / 'out/model.joblib').is_file()
-    assert len(pd.read_csv(tmp_path / 'out/clean.csv')) == rows
+    assert len(pd.read_csv(tmp_path / 'out/clean.csv')) == 80
     assert len(pd.read_csv(tmp_path / 'out/predictions.csv')) == 8
+
+
+def test_main_stops_when_quality_gate_fails(tmp_path: Path, caplog):
+    config = _write_pipeline_inputs(tmp_path, threshold=0.0)
+    with pytest.raises(SystemExit) as exc:
+        main(['--root', str(tmp_path), '--config', str(config)])
+    assert exc.value.code == 1
+    assert 'Quality gate failed' in caplog.text
 
 
 def test_main_missing_input_stops(tmp_path: Path):

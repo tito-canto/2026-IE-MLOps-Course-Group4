@@ -33,10 +33,23 @@ DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 
 def load_data(path: Path, required_columns: list[str] | None = None) -> pd.DataFrame:
-    """Read the raw CSV at `path` and return it untouched.
+    """Read the raw CSV and return it untouched, failing fast on unusable files.
 
-    Raises a clear error if the path is missing, is a folder, is empty,
-    or (when `required_columns` is given) lacks any expected column.
+    This is the single entry point for raw data, so a missing or broken file
+    stops the pipeline here with a clear message instead of deep in training.
+
+    Args:
+        path: Location of the raw CSV file.
+        required_columns: Column names the file must contain. ``None`` or an
+            empty list skips the column check.
+
+    Returns:
+        The raw data exactly as read by :func:`pandas.read_csv`.
+
+    Raises:
+        FileNotFoundError: If ``path`` does not exist.
+        IsADirectoryError: If ``path`` is a folder.
+        ValueError: If the file is empty, has no rows, or lacks a required column.
     """
     path = Path(path)
     if not path.exists():
@@ -59,7 +72,18 @@ def load_data(path: Path, required_columns: list[str] | None = None) -> pd.DataF
 
 
 def audit_data(df: pd.DataFrame) -> None:
-    """Log a quick audit of the raw data (shape, duplicates, missing values, dtypes)."""
+    """Log a quick audit of the raw data, mirroring notebook section 2.
+
+    The audit makes data problems (duplicates, missing values, wrong types)
+    visible in the run log before any cleaning happens.
+
+    Args:
+        df: Raw data returned by :func:`load_data`.
+
+    Returns:
+        None. Shape, duplicate count, missing values, dtypes and the first rows
+        are written to the module logger at INFO level.
+    """
     logger.info("Shape: %s", df.shape)
     logger.info("Duplicate rows: %d", df.duplicated().sum())
     logger.info("Missing values:\n%s", df.isna().sum().to_string())
@@ -68,6 +92,17 @@ def audit_data(df: pd.DataFrame) -> None:
 
 
 def main() -> pd.DataFrame:
+    """Load and audit the raw CSV named in the config from the command line.
+
+    Run: ``python -m src.load_data [--config config.yaml]``.
+
+    Returns:
+        The raw data read from ``paths.raw_data``.
+
+    Raises:
+        FileNotFoundError: If the config or the raw CSV does not exist.
+        ValueError: If the raw CSV is empty or lacks a required column.
+    """
     parser = argparse.ArgumentParser(description="Load and audit the raw dataset.")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH, help="Path to config.yaml")
     args = parser.parse_args()

@@ -51,10 +51,26 @@ def validate_data(
     numeric: Sequence[str],
     expected_rows: int | None = None,
 ) -> bool:
-    """Return True if ``df`` passes every rule; otherwise raise ValueError listing all failures.
+    """Check cleaned data against the schema and business rules before training.
 
-    ``expected_rows`` is optional because a fixed row count only applies to the training dataset,
-    not to live requests. ``df`` is never modified.
+    All rules are checked and every failure is reported together, so one run
+    shows everything that needs fixing. Duplicates and missing predictors are
+    only logged, as in the notebook. ``df`` is never modified.
+
+    Args:
+        df: Cleaned data returned by :func:`src.clean_data.clean_data`.
+        required_columns: Columns that must be present.
+        target: Target column; it must be numeric and have no missing values.
+        numeric: Columns that must have a numeric dtype.
+        expected_rows: Exact row count required. Use ``None`` for live
+            requests, where a fixed count does not apply.
+
+    Returns:
+        ``True`` when every rule passes.
+
+    Raises:
+        ValueError: Listing every failed rule (missing columns, no rows, wrong
+            row count, non-numeric columns, missing target values).
     """
     numeric_columns = list(numeric) + [target]
     expected_columns = list(dict.fromkeys(list(required_columns) + numeric_columns))
@@ -93,7 +109,19 @@ def validate_data(
 
 
 def run(config_path: Path = DEFAULT_CONFIG_PATH, root: Path = ROOT) -> bool:
-    """Read the processed CSV named in the config and validate it."""
+    """Validate the configured processed CSV.
+
+    Args:
+        config_path: YAML settings file with ``paths``, ``data`` and ``validation``.
+        root: Folder that the relative paths in the config resolve against.
+
+    Returns:
+        ``True`` when the processed data passes every rule.
+
+    Raises:
+        FileNotFoundError: If the config or processed CSV does not exist.
+        ValueError: If any validation rule fails.
+    """
     cfg = load_config(Path(config_path))
     processed_path = root / cfg["paths"]["processed_data"]
     data_cfg = cfg["data"]
@@ -111,6 +139,19 @@ def run(config_path: Path = DEFAULT_CONFIG_PATH, root: Path = ROOT) -> bool:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
+    """Validate the processed dataset from the command line.
+
+    Run: ``python -m src.validate [--config config.yaml] [--root .]``.
+
+    Args:
+        argv: Command line arguments; ``None`` reads them from ``sys.argv``.
+
+    Returns:
+        None.
+
+    Raises:
+        SystemExit: With code 1 if a file is missing or validation fails.
+    """
     parser = argparse.ArgumentParser(description="Validate the processed insurance dataset.")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     parser.add_argument(
